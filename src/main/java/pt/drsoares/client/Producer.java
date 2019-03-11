@@ -3,12 +3,14 @@ package pt.drsoares.client;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioSocketChannel;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.util.concurrent.TimeUnit;
 
 
 public class Producer {
@@ -21,13 +23,14 @@ public class Producer {
             while (true) {
                 Thread.sleep(1000L);
                 producer.write("Message at " + System.currentTimeMillis() + "\n host:" + InetAddress.getLocalHost());
+                System.out.println(producer.channel.isOpen());
             }
         } finally {
             producer.close();
         }
     }
 
-    private Channel channel;
+    private volatile Channel channel;
     private final String host;
     private final int port;
 
@@ -39,24 +42,22 @@ public class Producer {
     }
 
     private void start() {
-        channel = connect();
+        connect();
     }
 
-    private Channel connect() {
-        try {
-            Bootstrap bootstrap = new Bootstrap()
-                    .group(group)
-                    .channel(NioSocketChannel.class)
-                    .handler(new ProducerInitializer());
+    private void connect() {
+        Bootstrap bootstrap = new Bootstrap()
+                .group(group)
+                .channel(NioSocketChannel.class)
+                .handler(new ProducerInitializer());
 
-            ChannelFuture future = bootstrap.connect(host, port);
-            return future.sync().channel();
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-        }
+        ChannelFuture future = bootstrap.connect(host, port);
+        this.channel = future.channel();
+        ChannelFuture closeFuture = channel.closeFuture();
+        closeFuture.addListener((ChannelFutureListener) f -> group.schedule(this::connect, 100L, TimeUnit.MILLISECONDS));
     }
 
-    public void close() throws InterruptedException {
+    public void close() {
         group.shutdownGracefully();
     }
 
